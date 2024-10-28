@@ -13,13 +13,13 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 
 class VoiceMessageReceived implements ShouldBroadcastNow
 {
-    use Dispatchable, InteractsWithSockets;
+    use Dispatchable, SerializesModels;
 
-    public $message;
+    public $audioUrl;
 
-    public function __construct($message)
+    public function __construct($audioUrl)
     {
-        $this->message = $message;
+        $this->audioUrl = $audioUrl;
     }
 
     public function broadcastOn()

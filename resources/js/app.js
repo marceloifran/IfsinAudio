@@ -1,6 +1,8 @@
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
 
+Pusher.logToConsole = true;
+
 window.Pusher = Pusher;
 
 window.Echo = new Echo({
@@ -9,6 +11,12 @@ window.Echo = new Echo({
     cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
     wsHost: window.location.hostname,
     wsPort: 6001,
-    forceTLS: import.meta.env.VITE_PUSHER_SCHEME === 'https',
+    forceTLS: true,
     disableStats: true,
 });
+
+window.Echo.channel('wakie-talkie')
+    .listen('.voice-message', (event) => {
+        console.log('Mensaje de voz recibido:', event.message);
+        alert(`Mensaje de voz: ${event.message}`);
+    });

@@ -1,102 +1,116 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Walkie-Talkie</title>
-    {{-- <script src="{{ asset('js/app.js') }}" defer></script> --}}
-    @vite(['resources/css/app.css', 'resources/js/app.js'])
-    {{-- <script src="{{ mix('js/app.js') }}" defer></script> --}}
+    <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
 </head>
-
 <body>
-    <div id="app">
-        <h1>Walkie-Talkie</h1>
+    <h1>Walkie-Talkie</h1>
 
-        <!-- Grabación y Envío de Mensaje de Voz -->
-        <section>
-            <h2>Grabar y Enviar Mensaje de Voz</h2>
-            <button id="startRecording" onclick="startRecording()">Comenzar Grabación</button>
-            <button id="stopRecording" onclick="stopRecording()" disabled>Detener Grabación</button>
-            <p id="recordingStatus">Estado: Esperando...</p>
-        </section>
-
-        <!-- Reproducción de Mensajes de Voz -->
-        <section>
-            <h2>Mensajes de Voz Recibidos</h2>
-            <ul id="receivedMessages"></ul>
-        </section>
-    </div>
+    <button onclick="startRecording()">Start Recording</button>
+    <button onclick="stopRecording()" disabled>Stop Recording</button>
+    <button onclick="sendVoiceMessage()" disabled>Send Voice Message</button>
 
     <script>
-        let mediaRecorder;
-        let audioChunks = [];
+        let recorder, audioBlob;
 
-        // Iniciar grabación
+        // Función para iniciar la grabación de audio
         function startRecording() {
-            navigator.mediaDevices.getUserMedia({
-                    audio: true
-                })
-                .then(stream => {
-                    mediaRecorder = new MediaRecorder(stream);
-                    mediaRecorder.start();
-
-                    document.getElementById('recordingStatus').innerText = "Estado: Grabando...";
-                    document.getElementById('startRecording').disabled = true;
-                    document.getElementById('stopRecording').disabled = false;
-
-                    mediaRecorder.ondataavailable = event => {
-                        audioChunks.push(event.data);
-                    };
-                })
-                .catch(error => console.error('Error al acceder al micrófono:', error));
+            try {
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        console.log("Inicio de grabación de audio.");
+                        recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                        recorder.start();
+                        recorder.ondataavailable = e => {
+                            audioBlob = e.data;
+                            console.log("Audio grabado:", audioBlob);
+                        };
+                        document.querySelector('[onclick="stopRecording()"]').disabled = false;
+                    }).catch(error => {
+                        console.error("Error al obtener acceso al micrófono:", error);
+                    });
+            } catch (error) {
+                console.error("Error en startRecording:", error);
+            }
         }
 
-        // Detener grabación y enviar mensaje
+        // Función para detener la grabación de audio
         function stopRecording() {
-            mediaRecorder.stop();
-            document.getElementById('recordingStatus').innerText = "Estado: Enviando...";
-            document.getElementById('startRecording').disabled = false;
-            document.getElementById('stopRecording').disabled = true;
+            try {
+                recorder.stop();
+                document.querySelector('[onclick="sendVoiceMessage()"]').disabled = false;
+                console.log("Grabación detenida.");
+            } catch (error) {
+                console.error("Error en stopRecording:", error);
+            }
+        }
 
-            mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(audioChunks, {
-                    type: 'audio/webm'
-                });
+        // Función para enviar el mensaje de voz al servidor
+        async function sendVoiceMessage() {
+            try {
                 const formData = new FormData();
                 formData.append('audio', audioBlob, 'voice-message.webm');
+                console.log("Enviando mensaje de voz al servidor...");
 
-                fetch('/send-voice', {
-                        method: 'POST',
-                        body: formData
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        console.log('Mensaje de voz enviado:', data.message);
-                        document.getElementById('recordingStatus').innerText = "Estado: Esperando...";
-                    })
-                    .catch(error => console.error('Error al enviar mensaje de voz:', error));
+                const response = await fetch('/send-voice', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                    },
+                    body: formData
+                });
 
-                audioChunks = [];
-            };
+                if (response.ok) {
+                    console.log("Mensaje de voz enviado exitosamente.");
+                    alert("Mensaje de voz enviado");
+                } else {
+                    console.error("Error en la respuesta del servidor:", response.statusText);
+                }
+            } catch (error) {
+                console.error("Error en sendVoiceMessage:", error);
+            }
         }
 
-        // Configurar Laravel Echo para escuchar mensajes de voz en tiempo real
-        Echo.channel('wakie-talkie')
-            .listen('.voice-message', (event) => {
-                const messageUrl = `/storage/${event.message}`;
+        // Configuración de Pusher para recibir y reproducir mensajes de voz
+        Pusher.logToConsole = true;
+        const pusher = new Pusher('5f6362d8a1aefaf86a74', { cluster: 'us2' });
+        const channel = pusher.subscribe('wakie-talkie');
 
-                // Crear un elemento de audio para reproducir el mensaje
-                const listItem = document.createElement('li');
-                const audio = document.createElement('audio');
-                audio.src = messageUrl;
-                audio.controls = true;
+        // Escuchar el evento de mensaje de voz y reproducirlo
+        channel.bind('voice-message', function(data) {
+            try {
+                console.log("Evento de mensaje de voz recibido:", data);
 
-                listItem.appendChild(audio);
-                document.getElementById('receivedMessages').appendChild(listItem);
-            });
+                if (!data.audioUrl) {
+                    console.error("No se encontró URL de audio en el evento.");
+                    return;
+                }
+
+                const playButton = document.createElement("button");
+                playButton.textContent = "Reproducir mensaje de voz";
+                document.body.appendChild(playButton);
+
+                playButton.onclick = () => {
+                    const audio = new Audio(data.audioUrl);
+                    audio.play()
+                        .then(() => {
+                            console.log("Reproducción de audio iniciada.");
+                            playButton.remove();
+                        })
+                        .catch(error => {
+                            console.error("Error al reproducir el audio:", error);
+                        });
+
+                    audio.onended = () => {
+                        console.log("El mensaje de voz ha terminado de reproducirse.");
+                    };
+                };
+            } catch (error) {
+                console.error("Error al procesar el evento de mensaje de voz:", error);
+            }
+        });
     </script>
 </body>
-
 </html>
